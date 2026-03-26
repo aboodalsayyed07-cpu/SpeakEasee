@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SpeakEase</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#22c55e">
+<style>
+body{
+  font-family: Arial, sans-serif;
+  margin:0;
+  background: linear-gradient(135deg,#0b0c17,#1b1d2b);
+  color:white;
+  height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+<link rel="manifest" href="manifest.json">
+}
+
+.container{
+  background:#111827;
+  padding:35px 40px;
+  border-radius:25px;
+  width:420px;
+  text-align:center;
+  box-shadow:0 0 40px rgba(0,0,0,0.6);
+}
+
+h1{margin:0; font-size:26px; letter-spacing:1px;}
+.subtitle{opacity:0.85; margin-bottom:20px; font-size:14px;}
+
+.slider{width:100%; margin:15px 0; accent-color:#22c55e;}
+.value{font-size:16px; margin-bottom:10px;}
+
+.controls{
+  display:flex;
+  justify-content:center;
+  gap:15px;
+  margin-bottom:20px;
+}
+
+button{
+  border:none;
+  padding:12px 25px;
+  border-radius:12px;
+  font-size:16px;
+  cursor:pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+button:hover{
+  transform:scale(1.05);
+  box-shadow:0 4px 15px rgba(0,0,0,0.3);
+}
+.start{background:#22c55e; color:white;}
+.stop{background:#ef4444; color:white;}
+
+#micLevel{
+  width:100%;
+  height:12px;
+  background:#2c2f44;
+  border-radius:6px;
+  overflow:hidden;
+  margin-top:10px;
+}
+
+#micLevelInner{
+  height:100%;
+  width:0%;
+  background:#22c55e;
+  transition: width 0.05s;
+}
+
+.credit{
+  margin-top:20px;
+  font-size:12px;
+  opacity:0.6;
+  letter-spacing:1px;
+}
+</style>
+</head>
+<link rel="manifest" href="manifest.json">
+<body>
+
+<div class="container">
+<h1>SpeakEase</h1>
+<div class="subtitle">Every word counts – Keep practicing!</div>
+
+<label>Delay: <span id="delayValue">0.2</span> sec</label>
+<input id="delaySlider" class="slider" type="range" min="0.01" max="2" step="0.01" value="0.25">
+
+<label>Output Volume: <span id="volumeValue">1.0</span></label>
+<input id="volumeSlider" class="slider" type="range" min="0" max="2" step="0.05" value="1.0">
+
+<div class="controls">
+  <button class="start" onclick="start()">Start</button>
+  <button class="stop" onclick="stop()">Stop</button>
+</div>
+
+<div id="micLevel"><div id="micLevelInner"></div></div>
+
+<div class="credit">Created by <b>Abood</b></div>
+</div>
+
+<script>
+let audioContext, stream, delayNode, analyser, dataArray, animationId, source, gainNode;
+
+const slider = document.getElementById("delaySlider");
+const value = document.getElementById("delayValue");
+const volumeSlider = document.getElementById("volumeSlider");
+const volumeValue = document.getElementById("volumeValue");
+const micInner = document.getElementById("micLevelInner");
+
+slider.oninput = () => {
+  value.innerText = parseFloat(slider.value).toFixed(2);
+  if(delayNode) delayNode.delayTime.value = slider.value;
+};
+volumeSlider.oninput = () => {
+  volumeValue.innerText = parseFloat(volumeSlider.value).toFixed(2);
+  if(gainNode) gainNode.gain.value = volumeSlider.value;
+};
+
+async function start(){
+  stream = await navigator.mediaDevices.getUserMedia({audio:true});
+  audioContext = new AudioContext();
+
+  source = audioContext.createMediaStreamSource(stream);
+
+  // Noise reduction
+  const filter = audioContext.createBiquadFilter();
+  filter.type = "highpass";
+  filter.frequency.value = 80;
+
+  gainNode = audioContext.createGain();
+  gainNode.gain.value = volumeSlider.value;
+
+  const compressor = audioContext.createDynamicsCompressor();
+  compressor.threshold.setValueAtTime(-50, audioContext.currentTime);
+  compressor.knee.setValueAtTime(40, audioContext.currentTime);
+  compressor.ratio.setValueAtTime(12, audioContext.currentTime);
+  compressor.attack.setValueAtTime(0, audioContext.currentTime);
+  compressor.release.setValueAtTime(0.25, audioContext.currentTime);
+
+  delayNode = audioContext.createDelay();
+  delayNode.delayTime.value = slider.value;
+
+  analyser = audioContext.createAnalyser();
+  analyser.fftSize = 256;
+  const bufferLength = analyser.frequencyBinCount;
+  dataArray = new Uint8Array(bufferLength);
+
+  // Connect nodes
+  source.connect(filter);
+  filter.connect(compressor);
+  compressor.connect(gainNode);
+  gainNode.connect(delayNode);
+  delayNode.connect(audioContext.destination);
+  gainNode.connect(analyser);
+
+  visualize();
+}
+
+function visualize(){
+  animationId = requestAnimationFrame(visualize);
+  analyser.getByteTimeDomainData(dataArray);
+  let sum = 0;
+  for(let i=0;i<dataArray.length;i++){
+    let v = (dataArray[i]-128)/128;
+    sum += v*v;
+  }
+  let volume = Math.sqrt(sum/dataArray.length);
+  micInner.style.width = Math.min(volume*200,100) + "%";
+}
+
+function stop(){
+  if(stream) stream.getTracks().forEach(track => track.stop());
+  if(audioContext) audioContext.close();
+  cancelAnimationFrame(animationId);
+  micInner.style.width = "0%";
+}
+
+// Register service worker
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./sw.js')
+  .then(()=>console.log('Service Worker Registered'))
+  .catch((err)=>console.log('SW Registration Failed', err));
+}
+</script>
+
+</body>
+</html>
